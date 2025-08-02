@@ -11,7 +11,7 @@ CXX         := g++
 WINDRES     := windres
 
 CXXFLAGS    := -mwindows -Wall -std=c++17
-LDFLAGS     := -lgdi32 -lshell32 -luser32
+LDFLAGS     := -lgdi32 -lshell32 -luser32 -lcomctl32
 
 # === Rules ===
 all: $(TARGET)

@@ -16,7 +16,7 @@
 // Window dimensions
 #define WINDOW_WIDTH 400
 #define WINDOW_HEIGHT 350
-#define ID_ICON_BUTTON 1006  // Add this with your other control IDs
+#define ID_ICON_BUTTON 1006  
 
 #define ID_TRAY_SHOW 1001
 #define ID_TRAY_EXIT 1002
@@ -187,29 +187,58 @@ void UpdateExternalServerState() {
     
     BOOL isExternal = (SendMessage(hwndChkExternal, BM_GETCHECK, 0, 0) == BST_CHECKED);
     
-    // Enable/disable controls based on checkbox state
-    EnableWindow(hwndInputHost, !isExternal);
-    EnableWindow(hwndInputExtHost, isExternal);
-    EnableWindow(hwndInputExtPort, isExternal);
-    EnableWindow(hwndLabelExtHost, isExternal);
-    EnableWindow(hwndLabelExtPort, isExternal);
+    // FIXED: Enable/disable controls based on checkbox state
+    EnableWindow(hwndInputHost, !isExternal);        // Host URL enabled when external is OFF
+    EnableWindow(hwndInputUser, TRUE);               // Username should ALWAYS be enabled
+    EnableWindow(hwndInputExtHost, isExternal);      // Ext Host enabled when external is ON  
+    EnableWindow(hwndInputExtPort, isExternal);      // Ext Port enabled when external is ON
+    EnableWindow(hwndLabelExtHost, isExternal);      // Label enabled when external is ON
+    EnableWindow(hwndLabelExtPort, isExternal);      // Label enabled when external is ON
+    
+    // Also update the visual appearance of disabled controls
+    if (isExternal) {
+        SetWindowTextW(hwndInputHost, L"");  // Clear when disabled
+    } else {
+        SetWindowTextW(hwndInputExtHost, L"192.168.1.100");  // Reset to default when disabled
+        SetWindowTextW(hwndInputExtPort, L"8000");
+    }
+    
+    // Force a visual update
+    InvalidateRect(hwndInputExtHost, NULL, TRUE);
+    InvalidateRect(hwndInputExtPort, NULL, TRUE);
+    InvalidateRect(hwndInputHost, NULL, TRUE);
+    UpdateWindow(hwndInputExtHost);
+    UpdateWindow(hwndInputExtPort);
+    UpdateWindow(hwndInputHost);
+}
+
+void HandleExternalCheckboxClick() {
+    UpdateExternalServerState();
+    
+    // Optional: Show a message about what changed
+    BOOL isExternal = (SendMessage(hwndChkExternal, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    if (isExternal) {
+        AppendLog("Switched to external server mode", false);
+    } else {
+        AppendLog("Switched to local server mode", false);
+    }
 }
 
 void CleanupTempFiles() {
     if (!broadcastFilePath.empty()) {
         if (DeleteFileA(broadcastFilePath.c_str())) {
-            AppendLog("✔ Deleted broadcast.py");
+            AppendLog("Deleted broadcast.py");
         } else {
-            AppendLog("⚠ Could not delete broadcast.py");
+            AppendLog("Could not delete broadcast.py");
         }
         broadcastFilePath.clear();
     }
     
     if (!clipboardFilePath.empty()) {
         if (DeleteFileA(clipboardFilePath.c_str())) {
-            AppendLog("✔ Deleted clipboard.py");
+            AppendLog("Deleted clipboard.py");
         } else {
-            AppendLog("⚠ Could not delete clipboard.py");
+            AppendLog("Could not delete clipboard.py");
         }
         clipboardFilePath.clear();
     }
@@ -218,18 +247,75 @@ void CleanupTempFiles() {
 void StopProcesses() {
     if (!processesStarted) return;
 
-    AppendLog("Stopping Python processes...");
+    AppendLog("Stopping processes...");
 
-    HANDLE processes[2] = { piBroadcast.hProcess, piClient.hProcess };
+    BOOL isExternal = (SendMessage(hwndChkExternal, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    
+    if (isExternal) {
+        // External server mode - need to stop remote server via SSH
+        wchar_t extHost[256];
+        GetWindowTextW(hwndInputExtHost, extHost, 256);
+        std::wstring wsExtHost(extHost);
+        std::string extHostStr(wsExtHost.begin(), wsExtHost.end());
+        
+        if (extHostStr.empty()) extHostStr = "localhost";
+        
+        // Kill remote broadcast server
+        std::string killRemoteCmd = "ssh -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no root@" + extHostStr + " \"pkill -f broadcast.py\"";
+        
+        STARTUPINFOA si = {};
+        si.cb = sizeof(si);
+        si.dwFlags = STARTF_USESHOWWINDOW;
+        si.wShowWindow = SW_HIDE;
+        
+        PROCESS_INFORMATION pi = {};
+        if (CreateProcessA(NULL, (LPSTR)killRemoteCmd.c_str(), NULL, NULL, FALSE, 
+                          CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+            WaitForSingleObject(pi.hProcess, 10000); // 10 second timeout
+            CloseHandle(pi.hProcess);
+            CloseHandle(pi.hThread);
+            AppendLog("Remote broadcast server stopped");
+        } else {
+            AppendLog("Could not stop remote broadcast server");
+        }
+        
+        // Clean up remote temp file
+        std::string cleanupCmd = "ssh -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no root@" + extHostStr + " \"rm -f /tmp/broadcast.py /tmp/broadcast.log\"";
+        if (CreateProcessA(NULL, (LPSTR)cleanupCmd.c_str(), NULL, NULL, FALSE, 
+                          CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+            WaitForSingleObject(pi.hProcess, 10000);
+            CloseHandle(pi.hProcess);
+            CloseHandle(pi.hThread);
+            AppendLog("Remote files cleaned up");
+        }
+        
+        // Stop local clipboard client
+        if (piClient.hProcess) {
+            TerminateProcess(piClient.hProcess, 0);
+            WaitForSingleObject(piClient.hProcess, 3000);
+            CloseHandle(piClient.hProcess);
+            AppendLog("Local client stopped");
+        }
+        
+        // Close SSH process handle if we have it
+        if (piBroadcast.hProcess) {
+            CloseHandle(piBroadcast.hProcess);
+        }
+        
+    } else {
+        // Local server mode - original logic
+        HANDLE processes[2] = { piBroadcast.hProcess, piClient.hProcess };
 
-    for (int i = 0; i < 2; ++i) {
-        if (processes[i]) {
-            TerminateProcess(processes[i], 0);
-            WaitForSingleObject(processes[i], 3000);  // up to 3 seconds
-            CloseHandle(processes[i]);
+        for (int i = 0; i < 2; ++i) {
+            if (processes[i]) {
+                TerminateProcess(processes[i], 0);
+                WaitForSingleObject(processes[i], 3000);
+                CloseHandle(processes[i]);
+            }
         }
     }
 
+    // Common cleanup
     if (piBroadcast.hThread) CloseHandle(piBroadcast.hThread);
     if (piClient.hThread) CloseHandle(piClient.hThread);
 
@@ -238,8 +324,7 @@ void StopProcesses() {
     processesStarted = false;
 
     CleanupTempFiles();
-
-    AppendLog("✔ Processes stopped");
+    AppendLog("All processes stopped");
     UpdateButtonStates();
 }
 
@@ -261,7 +346,7 @@ void StartPythonProcesses(const std::string& host, const std::string& user) {
     BOOL isExternal = (SendMessage(hwndChkExternal, BM_GETCHECK, 0, 0) == BST_CHECKED);
     
     if (isExternal) {
-        // Use external host and port
+        // External server mode - SSH setup
         wchar_t extHost[256], extPort[16];
         GetWindowTextW(hwndInputExtHost, extHost, 256);
         GetWindowTextW(hwndInputExtPort, extPort, 16);
@@ -275,73 +360,201 @@ void StartPythonProcesses(const std::string& host, const std::string& user) {
         if (extPortStr.empty()) extPortStr = "8000";
         
         serverUrl = "http://" + extHostStr + ":" + extPortStr;
-        AppendLog("Using external server: " + serverUrl);
-    } else {
-        // Use the host URL input
-        serverUrl = host;
-        AppendLog("Using host URL: " + serverUrl);
-    }
+        AppendLog("Setting up external server: " + extHostStr);
 
-    // Command to install dependencies
-    std::string pipCmd = "pip install pywin32 requests flask";
+        // Create temp files locally first
+        broadcastFilePath = writeTempFile("broadcast.py", broadcast_py);
+        clipboardFilePath = writeTempFile("clipboard.py", clipboard_py);
 
-    // Commands to launch the server and client
-    broadcastFilePath = writeTempFile("broadcast.py", broadcast_py);
-    clipboardFilePath = writeTempFile("clipboard.py", clipboard_py);
-    
-    // Construct full command lines
-    std::string cmd1 = "python \"" + broadcastFilePath + "\"";
-    std::string cmd2 = "python \"" + clipboardFilePath + "\" \"" + serverUrl + "\" " + user;
+        // Startup info with HIDDEN window
+        STARTUPINFOA si = {};
+        si.cb = sizeof(si);
+        si.hStdOutput = si.hStdError = writePipe;
+        si.dwFlags |= STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+        si.wShowWindow = SW_HIDE;
 
-    // Startup info with HIDDEN window
-    STARTUPINFOA si = {};
-    si.cb = sizeof(si);
-    si.hStdOutput = si.hStdError = writePipe;
-    si.dwFlags |= STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-    si.wShowWindow = SW_HIDE;  // Hide the console window
+        PROCESS_INFORMATION pi = {};
 
-    PROCESS_INFORMATION pi = {};
-    // Install dependencies (hidden)
-    if (!CreateProcessA(NULL, (LPSTR)pipCmd.c_str(), NULL, NULL, TRUE, 
-                       CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
-        MessageBoxA(NULL, "Failed to run pip install", "Error", MB_OK | MB_ICONERROR);
-        return;
-    }
+        // Step 1: Test SSH connection
+        std::string sshTestCmd = "ssh -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no root@" + extHostStr + " \"echo SSH connection successful\"";
+        AppendLog("Testing SSH connection...");
+        
+        if (!CreateProcessA(NULL, (LPSTR)sshTestCmd.c_str(), NULL, NULL, TRUE, 
+                           CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+            AppendLog("Failed to test SSH connection");
+            MessageBoxA(NULL, "Failed to test SSH connection", "Error", MB_OK | MB_ICONERROR);
+            return;
+        }
+        
+        WaitForSingleObject(pi.hProcess, 30000); // 30 second timeout
+        DWORD exitCode = 0;
+        GetExitCodeProcess(pi.hProcess, &exitCode);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        
+        if (exitCode != 0) {
+            AppendLog("SSH connection failed - check your SSH keys and host");
+            MessageBoxA(NULL, "SSH connection failed. Please ensure:\n- SSH keys are set up\n- Host is reachable\n- Root access is available", "SSH Error", MB_OK | MB_ICONERROR);
+            return;
+        }
+        
+        AppendLog("SSH connection successful");
 
-    // Wait for pip install to finish
-    WaitForSingleObject(pi.hProcess, INFINITE);
-
-    // Check exit code
-    DWORD exitCode = 0;
-    GetExitCodeProcess(pi.hProcess, &exitCode);
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
-
-    if (exitCode != 0) {
-        MessageBoxA(NULL, "pip install failed", "Error", MB_OK | MB_ICONERROR);
-        return;
-    } else {
-        AppendLog("Dependencies installed, starting Python processes...");
-        // Start broadcast.py (hidden)
-        if (CreateProcessA(NULL, (LPSTR)cmd1.c_str(), NULL, NULL, TRUE, 
-                          CREATE_NO_WINDOW, NULL, NULL, &si, &piBroadcast)) {
-            AppendLog("✔ Broadcast server started");
-            // Start clipboard.py (hidden)
-            if (CreateProcessA(NULL, (LPSTR)cmd2.c_str(), NULL, NULL, TRUE, 
-                              CREATE_NO_WINDOW, NULL, NULL, &si, &piClient)) {
-                AppendLog("✔ Clipboard client started", true);
-            } else {
-                AppendLog("✗ Failed to start clipboard client");
-            }        
+        // Step 2: Install Python dependencies on remote server
+        std::string remotePipCmd = "ssh -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no root@" + extHostStr + " \"cd /tmp && python3 -m venv clipenv && source clipenv/bin/activate && pip install flask requests\"";
+        AppendLog("Installing dependencies on remote server...");
+        
+        if (!CreateProcessA(NULL, (LPSTR)remotePipCmd.c_str(), NULL, NULL, TRUE, 
+                           CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+            AppendLog("Failed to install remote dependencies");
+            return;
+        }
+        
+        WaitForSingleObject(pi.hProcess, 60000); // 60 second timeout for pip install
+        GetExitCodeProcess(pi.hProcess, &exitCode);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        
+        if (exitCode != 0) {
+            AppendLog("Warning: Remote pip install may have failed, continuing anyway...");
         } else {
-            AppendLog("✗ Failed to start broadcast server");
+            AppendLog("Remote dependencies installed");
+        }
+
+        // Step 3: Copy broadcast.py to remote server
+        std::string scpCmd = "scp -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no \"" + broadcastFilePath + "\" root@" + extHostStr + ":/tmp/broadcast.py";
+        AppendLog("Copying broadcast.py to remote server...");
+        
+        if (!CreateProcessA(NULL, (LPSTR)scpCmd.c_str(), NULL, NULL, TRUE, 
+                           CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+            AppendLog("Failed to copy broadcast.py to remote server");
+            return;
+        }
+        
+        WaitForSingleObject(pi.hProcess, 30000);
+        GetExitCodeProcess(pi.hProcess, &exitCode);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        
+        if (exitCode != 0) {
+            AppendLog("Failed to copy broadcast.py - check SCP access");
+            return;
+        }
+        
+        AppendLog("broadcast.py copied to remote server");
+
+        // Step 4: Start broadcast.py on remote server
+        std::string remoteBroadcastCmd = "ssh -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no root@" + extHostStr + " \"cd /tmp && source clipenv/bin/activate && nohup python broadcast.py > broadcast.log 2>&1 &\"";
+        AppendLog("Starting broadcast server on remote host...");
+        
+        if (!CreateProcessA(NULL, (LPSTR)remoteBroadcastCmd.c_str(), NULL, NULL, TRUE, 
+                           CREATE_NO_WINDOW, NULL, NULL, &si, &piBroadcast)) {
+            AppendLog("Failed to start remote broadcast server");
+            return;
+        }
+        
+        // Give the remote server a moment to start
+        Sleep(2000);
+        AppendLog("Remote broadcast server started");
+
+        // Step 5: Install local dependencies for clipboard client
+        std::string localPipCmd = "pip install pywin32 requests";
+        AppendLog("Installing local dependencies...");
+        
+        if (!CreateProcessA(NULL, (LPSTR)localPipCmd.c_str(), NULL, NULL, TRUE, 
+                           CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+            AppendLog("Failed to install local dependencies");
+            return;
+        }
+        
+        WaitForSingleObject(pi.hProcess, 60000);
+        GetExitCodeProcess(pi.hProcess, &exitCode);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        
+        if (exitCode != 0) {
+            AppendLog("Warning: Local pip install may have failed, continuing anyway...");
+        } else {
+            AppendLog("Local dependencies installed");
+        }
+
+        // Step 6: Start local clipboard client
+        std::string localClientCmd = "python \"" + clipboardFilePath + "\" \"" + serverUrl + "\" " + user;
+        AppendLog("Starting local clipboard client...");
+        
+        if (!CreateProcessA(NULL, (LPSTR)localClientCmd.c_str(), NULL, NULL, TRUE, 
+                           CREATE_NO_WINDOW, NULL, NULL, &si, &piClient)) {
+            AppendLog("Failed to start local clipboard client");
+            return;
+        }
+        
+        AppendLog("Local clipboard client started");
+        AppendLog("External server setup complete!");        
+    } else {
+        // Local server mode (original logic)
+        serverUrl = host;
+        AppendLog("Using local server mode: " + serverUrl);
+
+        // Create temp files
+        broadcastFilePath = writeTempFile("broadcast.py", broadcast_py);
+        clipboardFilePath = writeTempFile("clipboard.py", clipboard_py);
+        
+        // Construct command lines
+        std::string cmd1 = "python \"" + broadcastFilePath + "\"";
+        std::string cmd2 = "python \"" + clipboardFilePath + "\" \"" + serverUrl + "\" " + user;
+        std::string pipCmd = "pip install pywin32 requests flask";
+
+        // Startup info with HIDDEN window
+        STARTUPINFOA si = {};
+        si.cb = sizeof(si);
+        si.hStdOutput = si.hStdError = writePipe;
+        si.dwFlags |= STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+        si.wShowWindow = SW_HIDE;
+
+        PROCESS_INFORMATION pi = {};
+        
+        // Install dependencies locally
+        if (!CreateProcessA(NULL, (LPSTR)pipCmd.c_str(), NULL, NULL, TRUE, 
+                           CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+            MessageBoxA(NULL, "Failed to run pip install", "Error", MB_OK | MB_ICONERROR);
+            return;
+        }
+
+        WaitForSingleObject(pi.hProcess, INFINITE);
+        DWORD exitCode = 0;
+        GetExitCodeProcess(pi.hProcess, &exitCode);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+
+        if (exitCode != 0) {
+            MessageBoxA(NULL, "pip install failed", "Error", MB_OK | MB_ICONERROR);
+            return;
+        } else {
+            AppendLog("Dependencies installed, starting Python processes...");
+            
+            // Start broadcast.py locally
+            if (CreateProcessA(NULL, (LPSTR)cmd1.c_str(), NULL, NULL, TRUE, 
+                              CREATE_NO_WINDOW, NULL, NULL, &si, &piBroadcast)) {
+                AppendLog("Local broadcast server started");
+                
+                // Start clipboard.py locally
+                if (CreateProcessA(NULL, (LPSTR)cmd2.c_str(), NULL, NULL, TRUE, 
+                                  CREATE_NO_WINDOW, NULL, NULL, &si, &piClient)) {
+                    AppendLog("Local clipboard client started");
+                } else {
+                    AppendLog("Failed to start local clipboard client");
+                }        
+            } else {
+                AppendLog("Failed to start local broadcast server");
+            }
         }
     }
 
     processesStarted = true;
     CloseHandle(writePipe);
-
     UpdateButtonStates();   
+    
+    // Start thread to read process output
     std::thread(ReadPipeAndLog, readPipe).detach();
 }
 
@@ -449,6 +662,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             }
             SetBkMode((HDC)wParam, TRANSPARENT);
             return (LRESULT)hBackgroundBrush;
+
         case WM_CTLCOLOREDIT:
             // Handle edit control colors
             if ((HWND)lParam == hwndLogBox) {
@@ -457,8 +671,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 SetBkColor((HDC)wParam, RGB(200, 230, 200));  // Light pistachio green
                 return (LRESULT)hLogBoxBrush;
             }
-            // Default for other edit controls
-            break;
+            // For all other edit controls, use default white background
+            SetTextColor((HDC)wParam, RGB(0, 0, 0));  // Black text
+            SetBkColor((HDC)wParam, RGB(255, 255, 255));  // White background
+            return (LRESULT)GetStockObject(WHITE_BRUSH);
 
         case WM_CTLCOLORDLG:
             // Set background color for the dialog itself
@@ -475,75 +691,73 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         case WM_CREATE: {
             // Create background brushes and font
-            hBackgroundBrush = CreateSolidBrush(RGB(171, 201, 158));  // Light lavender
-            hLogBoxBrush = CreateSolidBrush(RGB(200, 230, 200));  // Light pistachio green
+            hBackgroundBrush = CreateSolidBrush(RGB(171, 201, 158));
+            hLogBoxBrush = CreateSolidBrush(RGB(200, 230, 200));
             
-            // Create fixed-width font for log box
             hLogBoxFont = CreateFontW(
-                -12,                // Height
-                0,                  // Width (0 = default)
-                0,                  // Escapement
-                0,                  // Orientation
-                FW_NORMAL,          // Weight
-                FALSE,              // Italic
-                FALSE,              // Underline
-                FALSE,              // StrikeOut
-                DEFAULT_CHARSET,    // CharSet
-                OUT_DEFAULT_PRECIS, // OutPrecision
-                CLIP_DEFAULT_PRECIS,// ClipPrecision
-                DEFAULT_QUALITY,    // Quality
-                FIXED_PITCH | FF_MODERN, // PitchAndFamily
-                L"Consolas"         // Face name (fallback to system monospace if not available)
+                -12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN, L"Consolas"
             );
             
-            CreateWindowW(L"STATIC", L"Host URL:", WS_VISIBLE | WS_CHILD, 10, 10, 80, 20, hwnd, NULL, NULL, NULL);
-            hwndInputHost = CreateWindowW(L"EDIT", L"http://localhost:8000", WS_VISIBLE | WS_CHILD | WS_BORDER, 100, 10, 200, 20, hwnd, NULL, NULL, NULL);
+            // GET THE INSTANCE HANDLE FIRST!
+            HINSTANCE hInst = (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE);
+            
+            CreateWindowW(L"STATIC", L"Host URL:", WS_VISIBLE | WS_CHILD, 10, 10, 80, 20, hwnd, NULL, hInst, NULL);
+            hwndInputHost = CreateWindowW(L"EDIT", L"http://localhost:8000", 
+                WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT | WS_TABSTOP | ES_AUTOHSCROLL, 
+                100, 10, 200, 20, hwnd, NULL, hInst, NULL);  // <- NOW WITH hInst!
 
-            CreateWindowW(L"STATIC", L"Username:", WS_VISIBLE | WS_CHILD, 10, 40, 80, 20, hwnd, NULL, NULL, NULL);
-            hwndInputUser = CreateWindowW(L"EDIT", L"user1", WS_VISIBLE | WS_CHILD | WS_BORDER, 100, 40, 200, 20, hwnd, NULL, NULL, NULL);
+            CreateWindowW(L"STATIC", L"Username:", WS_VISIBLE | WS_CHILD, 10, 40, 80, 20, hwnd, NULL, hInst, NULL);
+            hwndInputUser = CreateWindowW(L"EDIT", L"user1", 
+                WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT | WS_TABSTOP | ES_AUTOHSCROLL, 
+                100, 40, 200, 20, hwnd, NULL, hInst, NULL);  // <- NOW WITH hInst!
 
             // External server checkbox
-            hwndChkExternal = CreateWindowW(L"BUTTON", L"External Server", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX, 10, 70, 120, 20, hwnd, (HMENU)ID_CHK_EXTERNAL, NULL, NULL);
+            hwndChkExternal = CreateWindowW(L"BUTTON", L"External Server", 
+                WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 
+                10, 70, 120, 20, hwnd, (HMENU)ID_CHK_EXTERNAL, hInst, NULL);
 
-            // External server inputs (initially disabled)
-            hwndLabelExtHost = CreateWindowW(L"STATIC", L"Ext Host:", WS_VISIBLE | WS_CHILD, 10, 100, 80, 20, hwnd, NULL, NULL, NULL);
-            hwndInputExtHost = CreateWindowW(L"EDIT", L"192.168.1.100", WS_VISIBLE | WS_CHILD | WS_BORDER, 100, 100, 120, 20, hwnd, NULL, NULL, NULL);
+            // External server labels
+            hwndLabelExtHost = CreateWindowW(L"STATIC", L"Ext Host:", WS_VISIBLE | WS_CHILD, 10, 100, 80, 20, hwnd, NULL, hInst, NULL);
+            hwndLabelExtPort = CreateWindowW(L"STATIC", L"Port:", WS_VISIBLE | WS_CHILD, 230, 100, 40, 20, hwnd, NULL, hInst, NULL);
 
-            hwndLabelExtPort = CreateWindowW(L"STATIC", L"Port:", WS_VISIBLE | WS_CHILD, 230, 100, 40, 20, hwnd, NULL, NULL, NULL);
-            hwndInputExtPort = CreateWindowW(L"EDIT", L"8000", WS_VISIBLE | WS_CHILD | WS_BORDER, 270, 100, 60, 20, hwnd, NULL, NULL, NULL);
+            // Your existing external edit controls are already correct
+            hwndInputExtHost = CreateWindowExW(
+                0, L"EDIT", L"192.168.1.100",
+                WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT | WS_TABSTOP | ES_AUTOHSCROLL,
+                100, 100, 120, 20, hwnd, NULL, hInst, NULL);
 
-            hwndBtnStart = CreateWindowW(L"BUTTON", L"Start", WS_VISIBLE | WS_CHILD, 100, 130, 80, 25, hwnd, (HMENU)ID_BTN_START, NULL, NULL);
-            hwndBtnStop = CreateWindowW(L"BUTTON", L"Stop", WS_VISIBLE | WS_CHILD, 190, 130, 80, 25, hwnd, (HMENU)ID_BTN_STOP, NULL, NULL);
+            hwndInputExtPort = CreateWindowExW(
+                0, L"EDIT", L"8000",
+                WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT | WS_TABSTOP | ES_AUTOHSCROLL,
+                270, 100, 60, 20, hwnd, NULL, hInst, NULL);
 
-            hwndLogBox = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL | ES_READONLY,
-                                       10, 170, 370, 120, hwnd, NULL, NULL, NULL);
+            hwndBtnStart = CreateWindowW(L"BUTTON", L"Start", WS_VISIBLE | WS_CHILD | WS_TABSTOP, 100, 130, 80, 25, hwnd, (HMENU)ID_BTN_START, hInst, NULL);
+            hwndBtnStop = CreateWindowW(L"BUTTON", L"Stop", WS_VISIBLE | WS_CHILD | WS_TABSTOP, 190, 130, 80, 25, hwnd, (HMENU)ID_BTN_STOP, hInst, NULL);
 
-            // Version label at bottom right
+            hwndLogBox = CreateWindowW(L"EDIT", L"", 
+                WS_VISIBLE | WS_CHILD | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL | ES_READONLY,
+                10, 170, 370, 120, hwnd, NULL, hInst, NULL);
+
             hwndVersionLabel = CreateWindowW(L"STATIC", L"inversepolarity v0.0.2", 
                                            WS_VISIBLE | WS_CHILD | SS_RIGHT, 
-                                           200, 300, 180, 20, hwnd, NULL, NULL, NULL);
-
-            // Subclass the edit control
+                                           200, 300, 180, 20, hwnd, NULL, hInst, NULL);
+            // Subclass ONLY the log box
             originalEditProc = (WNDPROC)SetWindowLongPtr(hwndLogBox, GWLP_WNDPROC, (LONG_PTR)LogBoxProc);
 
-            // Set the fixed-width font for the log box
             if (hLogBoxFont) {
                 SendMessage(hwndLogBox, WM_SETFONT, (WPARAM)hLogBoxFont, TRUE);
             }
 
-            // Replace the static control with a button
             HWND hwndIcon = CreateWindowW(L"BUTTON", NULL, 
                                         WS_VISIBLE | WS_CHILD | BS_ICON | BS_FLAT, 
                                         320, 10, 64, 64, hwnd, (HMENU)ID_ICON_BUTTON, NULL, NULL);
 
-            // Load and set the icon
             HICON hIcon = (HICON)LoadImage(GetModuleHandle(NULL), 
                                            MAKEINTRESOURCE(IDI_MAIN_ICON),
-                                           IMAGE_ICON, 
-                                           64, 64,
-                                           LR_DEFAULTCOLOR);
+                                           IMAGE_ICON, 64, 64, LR_DEFAULTCOLOR);
             SendMessage(hwndIcon, BM_SETIMAGE, IMAGE_ICON, (LPARAM)hIcon);
-
 
             UpdateExternalServerState();
             UpdateButtonStates();
@@ -566,14 +780,42 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         case WM_COMMAND:
             switch (LOWORD(wParam)) {
-        case ID_ICON_BUTTON: {
-            wchar_t host[256];
-            GetWindowTextW(hwndInputHost, host, 256);
-            std::wstring wsHost(host);
-            std::string hostStr(wsHost.begin(), wsHost.end());
-            ShellExecuteA(NULL, "open", hostStr.c_str(), NULL, NULL, SW_SHOWNORMAL);
-            break;
-        }                
+                
+case ID_ICON_BUTTON: {
+    std::string urlToOpen;
+    
+    // Check if external server mode is enabled
+    BOOL isExternal = (SendMessage(hwndChkExternal, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    
+    if (isExternal) {
+        // External server mode - build URL from external host and port
+        wchar_t extHost[256], extPort[16];
+        GetWindowTextW(hwndInputExtHost, extHost, 256);
+        GetWindowTextW(hwndInputExtPort, extPort, 16);
+        
+        std::wstring wsExtHost(extHost);
+        std::wstring wsExtPort(extPort);
+        std::string extHostStr(wsExtHost.begin(), wsExtHost.end());
+        std::string extPortStr(wsExtPort.begin(), wsExtPort.end());
+        
+        // Use defaults if empty
+        if (extHostStr.empty()) extHostStr = "localhost";
+        if (extPortStr.empty()) extPortStr = "8000";
+        
+        // Build the external server URL
+        urlToOpen = "http://" + extHostStr + ":" + extPortStr;
+    } else {
+        // Local server mode - use the host URL field
+        wchar_t host[256];
+        GetWindowTextW(hwndInputHost, host, 256);
+        std::wstring wsHost(host);
+        urlToOpen = std::string(wsHost.begin(), wsHost.end());
+    }
+    
+    // Open the URL in the default browser
+    ShellExecuteA(NULL, "open", urlToOpen.c_str(), NULL, NULL, SW_SHOWNORMAL);
+    break;
+}               
                 case ID_BTN_START: {
                     wchar_t host[256], user[256];
                     GetWindowTextW(hwndInputHost, host, 256);
@@ -700,13 +942,15 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
     UpdateWindow(hwnd);
 
     MSG msg = {};
-    while (GetMessage(&msg, NULL, 0, 0)) DispatchMessage(&msg);
-    
+    while (GetMessage(&msg, NULL, 0, 0)) {
+        TranslateMessage(&msg);  // Converts WM_KEYDOWN to WM_CHAR
+        DispatchMessage(&msg);
+    }
+
     // Cleanup mutex on exit
     if (hMutex) {
         ReleaseMutex(hMutex);
         CloseHandle(hMutex);
     }
-    
     return 0;
 }
