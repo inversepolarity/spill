@@ -3,22 +3,23 @@
 
 ![](spill.gif)
 
-### download latest version from [releases](https://github.com/inversepolarity/spill/releases/) and run
+### 📥 download latest version from [releases](https://github.com/inversepolarity/spill/releases/) and run
 
-### features
+### 📫 features
 
 - runs locally or provide an external host (http only, via ssh)
 - https supported but needs certs installed on external host
 - fully transient solution, no data is stored anywhere
 - unicode supported
+- minimize to tray
 - ... more to come (image support, basic frontend for viewing clips etc.)
 
 
-### prerequisites
+### ✅ prerequisites
 
 - python should be installed on host
 
-### how to build (gcc)
+### 🛠️ how to build (gcc)
 
 - clone the repo
 - ensure python is installed
