@@ -1,4 +1,4 @@
-## spill v0.0.2
+## spill v0.0.3a
 ### transient clipboard server for windows
 
 ![](spill.gif)
@@ -7,6 +7,7 @@
 ### features
 
 - runs locally or provide an external host (http only, via ssh)
+- https supported but needs certs installed on external host
 - fully transient solution, no data is stored anywhere
 - unicode supported
 - ... more to come (image support, basic frontend for viewing clips etc.)
