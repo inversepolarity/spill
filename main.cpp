@@ -417,7 +417,7 @@ void AddTrayIcon(HWND hwnd) {
     nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     nid.uCallbackMessage = WM_USER + 1;
     nid.hIcon = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_MAIN_ICON));
-    wcscpy_s(nid.szTip, ARRAYSIZE(nid.szTip), L"Clipboard Tray");
+    wcscpy_s(nid.szTip, ARRAYSIZE(nid.szTip), L"Spill Clipboard Server");
 
     Shell_NotifyIcon(NIM_ADD, &nid);
 }

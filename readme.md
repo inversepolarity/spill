@@ -1,7 +1,7 @@
 ## spill v0.0.2
 ### transient clipboard server for windows
 
-![](spill.png)
+![](spill.gif)
 
 
 ### prerequisites
