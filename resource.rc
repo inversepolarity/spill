@@ -1,2 +1,4 @@
 #define IDI_MAIN_ICON 101
 IDI_MAIN_ICON ICON "icon.ico"
+#define IDI_ALT_ICON 102
+IDI_ALT_ICON ICON "alt_icon.ico"

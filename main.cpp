@@ -629,7 +629,7 @@ void AddTrayIcon(HWND hwnd) {
     nid.uID = 1;
     nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     nid.uCallbackMessage = WM_USER + 1;
-    nid.hIcon = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_MAIN_ICON));
+    nid.hIcon = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_ALT_ICON));
     wcscpy_s(nid.szTip, ARRAYSIZE(nid.szTip), L"Spill Clipboard Server");
 
     Shell_NotifyIcon(NIM_ADD, &nid);
@@ -740,7 +740,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 WS_VISIBLE | WS_CHILD | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL | ES_READONLY,
                 10, 170, 370, 120, hwnd, NULL, hInst, NULL);
 
-            hwndVersionLabel = CreateWindowW(L"STATIC", L"inversepolarity v0.0.2", 
+            hwndVersionLabel = CreateWindowW(L"STATIC", L"inversepolarity v0.0.3a", 
                                            WS_VISIBLE | WS_CHILD | SS_RIGHT, 
                                            200, 300, 180, 20, hwnd, NULL, hInst, NULL);
             // Subclass ONLY the log box
@@ -780,42 +780,41 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         case WM_COMMAND:
             switch (LOWORD(wParam)) {
-                
-case ID_ICON_BUTTON: {
-    std::string urlToOpen;
-    
-    // Check if external server mode is enabled
-    BOOL isExternal = (SendMessage(hwndChkExternal, BM_GETCHECK, 0, 0) == BST_CHECKED);
-    
-    if (isExternal) {
-        // External server mode - build URL from external host and port
-        wchar_t extHost[256], extPort[16];
-        GetWindowTextW(hwndInputExtHost, extHost, 256);
-        GetWindowTextW(hwndInputExtPort, extPort, 16);
-        
-        std::wstring wsExtHost(extHost);
-        std::wstring wsExtPort(extPort);
-        std::string extHostStr(wsExtHost.begin(), wsExtHost.end());
-        std::string extPortStr(wsExtPort.begin(), wsExtPort.end());
-        
-        // Use defaults if empty
-        if (extHostStr.empty()) extHostStr = "localhost";
-        if (extPortStr.empty()) extPortStr = "8000";
-        
-        // Build the external server URL
-        urlToOpen = "http://" + extHostStr + ":" + extPortStr;
-    } else {
-        // Local server mode - use the host URL field
-        wchar_t host[256];
-        GetWindowTextW(hwndInputHost, host, 256);
-        std::wstring wsHost(host);
-        urlToOpen = std::string(wsHost.begin(), wsHost.end());
-    }
-    
-    // Open the URL in the default browser
-    ShellExecuteA(NULL, "open", urlToOpen.c_str(), NULL, NULL, SW_SHOWNORMAL);
-    break;
-}               
+                case ID_ICON_BUTTON: {
+                    std::string urlToOpen;
+                    
+                    // Check if external server mode is enabled
+                    BOOL isExternal = (SendMessage(hwndChkExternal, BM_GETCHECK, 0, 0) == BST_CHECKED);
+                    
+                    if (isExternal) {
+                        // External server mode - build URL from external host and port
+                        wchar_t extHost[256], extPort[16];
+                        GetWindowTextW(hwndInputExtHost, extHost, 256);
+                        GetWindowTextW(hwndInputExtPort, extPort, 16);
+                        
+                        std::wstring wsExtHost(extHost);
+                        std::wstring wsExtPort(extPort);
+                        std::string extHostStr(wsExtHost.begin(), wsExtHost.end());
+                        std::string extPortStr(wsExtPort.begin(), wsExtPort.end());
+                        
+                        // Use defaults if empty
+                        if (extHostStr.empty()) extHostStr = "localhost";
+                        if (extPortStr.empty()) extPortStr = "8000";
+                        
+                        // Build the external server URL
+                        urlToOpen = "http://" + extHostStr + ":" + extPortStr;
+                    } else {
+                        // Local server mode - use the host URL field
+                        wchar_t host[256];
+                        GetWindowTextW(hwndInputHost, host, 256);
+                        std::wstring wsHost(host);
+                        urlToOpen = std::string(wsHost.begin(), wsHost.end());
+                    }
+                    
+                    // Open the URL in the default browser
+                    ShellExecuteA(NULL, "open", urlToOpen.c_str(), NULL, NULL, SW_SHOWNORMAL);
+                    break;
+                }               
                 case ID_BTN_START: {
                     wchar_t host[256], user[256];
                     GetWindowTextW(hwndInputHost, host, 256);
