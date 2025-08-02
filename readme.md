@@ -3,6 +3,7 @@
 
 ![](spill.gif)
 
+### download latest version from [releases](https://github.com/inversepolarity/spill/releases/) and run
 
 ### features
 
