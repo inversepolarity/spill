@@ -1,4 +1,4 @@
-## spill v0.0.3a
+## spill v0.0.4a
 ### transient clipboard server for windows
 
 ![](spill.gif)
