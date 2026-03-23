@@ -740,7 +740,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 WS_VISIBLE | WS_CHILD | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL | ES_READONLY,
                 10, 170, 370, 120, hwnd, NULL, hInst, NULL);
 
-            hwndVersionLabel = CreateWindowW(L"STATIC", L"inversepolarity v0.0.3a", 
+            hwndVersionLabel = CreateWindowW(L"STATIC", L"inversepolarity v0.0.4a", 
                                            WS_VISIBLE | WS_CHILD | SS_RIGHT, 
                                            200, 300, 180, 20, hwnd, NULL, hInst, NULL);
             // Subclass ONLY the log box

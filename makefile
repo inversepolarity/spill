@@ -7,11 +7,12 @@ SRC         := main.cpp
 RES         := resource.rc
 RES_OBJ     := $(OBJ_DIR)/resource.o
 
-CXX         := g++
-WINDRES     := windres
+CXX         := x86_64-w64-mingw32-g++
+WINDRES     := x86_64-w64-mingw32-windres
 
 CXXFLAGS    := -mwindows -Wall -std=c++17
-LDFLAGS     := -lgdi32 -lshell32 -luser32 -lcomctl32
+LDFLAGS     := -static -static-libgcc -static-libstdc++ -lpthread \
+               -lgdi32 -lshell32 -luser32 -lcomctl32
 
 # === Rules ===
 all: $(TARGET)
@@ -23,9 +24,9 @@ $(RES_OBJ): $(RES) | $(OBJ_DIR)
 	$(WINDRES) $< -o $@
 
 $(OBJ_DIR):
-	mkdir $(OBJ_DIR)
+	mkdir -p $(OBJ_DIR)
 
 clean:
-	-del /Q $(OBJ_DIR)\* 2> NUL || exit 0
+	rm -f $(OBJ_DIR)/*
 
 .PHONY: all clean
